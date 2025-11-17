@@ -13,49 +13,6 @@ This library provides a simple interface to control TM1637-based 7-segment displ
 *   **TM1637 7-Segment Display Module:** A common and inexpensive display module.
 *   **STM32 Microcontroller:** The library is designed for STM32, and the example is specifically for the STM32F411RE.
 
-## Usage
-
-1.  **Include the library:**
-    Add `TM1637.h` and `TM1637.c` to your STM32 project.
-
-2.  **Initialize the display:**
-    Create an instance of the `TM1637` display object, specifying the GPIO pins for CLK and DIO.
-
-    ```c
-    #include "TM1637.h"
-
-    // Define the GPIO pins for the display
-    #define TM1637_CLK_PIN GPIO_PIN_0
-    #define TM1637_CLK_PORT GPIOA
-    #define TM1637_DIO_PIN GPIO_PIN_1
-    #define TM1637_DIO_PORT GPIOA
-
-    // Create a display object
-    TM1637_t tm1637_display;
-    ```
-
-3.  **Configure the display in your application:**
-    Initialize the display and set the desired brightness.
-
-    ```c
-    void main(void) {
-      // ... system initialization ...
-
-      // Initialize the display
-      TM1637_Init(&tm1637_display, TM1637_CLK_PORT, TM1637_CLK_PIN, TM1637_DIO_PORT, TM1637_DIO_PIN);
-
-      // Set the brightness (0-7)
-      TM1637_SetBrightness(&tm1637_display, 7);
-
-      // Display a number
-      TM1637_DisplayDecimal(&tm1637_display, 1234, 0);
-
-      while(1) {
-        // ... your application code ...
-      }
-    }
-    ```
-
 ## Example Project
 
 An example project demonstrating the usage of this library is provided.

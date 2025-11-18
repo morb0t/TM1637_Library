@@ -9,26 +9,18 @@
 #include "tm1637.h"
 
 // ===================================================================================
-// USER CONFIGURATION (MANDATORY: REPLACE WITH YOUR CUBEMX-GENERATED PIN DEFINITIONS)
-// ===================================================================================
-// Example based on PA4/PA5
-#define TM1637_CLK_GPIO_Port GPIOA
-#define TM1637_CLK_Pin GPIO_PIN_4
-#define TM1637_DIO_GPIO_Port GPIOA
-#define TM1637_DIO_Pin GPIO_PIN_5
-
-// ===================================================================================
 // LOW-LEVEL PIN CONTROL MACROS
 // ===================================================================================
-#define CLK_LOW()  HAL_GPIO_WritePin(TM1637_CLK_GPIO_Port, TM1637_CLK_Pin, GPIO_PIN_RESET)
-#define CLK_HIGH() HAL_GPIO_WritePin(TM1637_CLK_GPIO_Port, TM1637_CLK_Pin, GPIO_PIN_SET)
-#define DIO_LOW()  HAL_GPIO_WritePin(TM1637_DIO_GPIO_Port, TM1637_DIO_Pin, GPIO_PIN_RESET)
-#define DIO_HIGH() HAL_GPIO_WritePin(TM1637_DIO_GPIO_Port, TM1637_DIO_Pin, GPIO_PIN_SET)
-#define DIO_READ() HAL_GPIO_ReadPin(TM1637_DIO_GPIO_Port, TM1637_DIO_Pin)
+#define CLK_LOW(TM1637_t* tm1637)  HAL_GPIO_WritePin(tm1637->clk_port, tm1637->clk_pin, GPIO_PIN_RESET)
+#define CLK_HIGH(TM1637_t* tm1637) HAL_GPIO_WritePin(tm1637->clk_port, tm1637->clk_pin,GPIO_PIN_SET)
+#define DIO_LOW(TM1637_t* tm1637)  HAL_GPIO_WritePin(tm1637->dio_port, tm1637->dio_pin,GPIO_PIN_RESET)
+#define DIO_HIGH(TM1637_t* tm1637) HAL_GPIO_WritePin(tm1637->dio_port, tm1637->dio_pin, GPIO_PIN_SET)
+#define DIO_READ(TM1637_t* tm1637) HAL_GPIO_ReadPin(tm1637->dio_port, tm1637->dio_pin)
 
 // --- Segment Codes (Common Cathode) ---
 // The index 10 (0x00) is used for a blank digit
-const uint8_t segment_codes[] = { 0x3F, // 0: 0b00111111
+const uint8_t segment_codes[] = { 
+		0x3F, // 0: 0b00111111
 		0x06, // 1: 0b00000110
 		0x5B, // 2: 0b01011011
 		0x4F, // 3: 0b01001111
@@ -39,7 +31,7 @@ const uint8_t segment_codes[] = { 0x3F, // 0: 0b00111111
 		0x7F, // 8: 0b01111111
 		0x6F, // 9: 0b01101111
 		0x00, // 10: BLANK
-		};
+};
 
 // ===================================================================================
 // HELPER FUNCTIONS (Timing and DIO Direction Switching)
@@ -58,25 +50,25 @@ static inline void TM1637_Delay(void) {
 /**
  * @brief Configures the DIO pin as Input (required to read ACK).
  */
-static void DIO_AsInput() {
+static void DIO_AsInput(TM1637_t* tm1637) {
 	GPIO_InitTypeDef GPIO_InitStruct = { 0 };
-	GPIO_InitStruct.Pin = TM1637_DIO_Pin;
+	GPIO_InitStruct.Pin = tm1637->dio_pin;
 	GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
 	GPIO_InitStruct.Pull = GPIO_PULLUP;
-	HAL_GPIO_Init(TM1637_DIO_GPIO_Port, &GPIO_InitStruct);
+	HAL_GPIO_Init(tm1637->dio_port, &GPIO_InitStruct);
 }
 
 /**
  * @brief Configures the DIO pin as Output Open-Drain (required to drive data).
  */
-static void DIO_AsOutput() {
+static void DIO_AsOutput(TM1637_t* tm1637) {
 	GPIO_InitTypeDef GPIO_InitStruct = { 0 };
-	GPIO_InitStruct.Pin = TM1637_DIO_Pin;
+	GPIO_InitStruct.Pin = tm1637->dio_pin;
 	// NOTE: Must be OUTPUT_OD (Open-Drain) as configured in CubeMX
 	GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_OD;
 	GPIO_InitStruct.Pull = GPIO_PULLUP;
 	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-	HAL_GPIO_Init(TM1637_DIO_GPIO_Port, &GPIO_InitStruct);
+	HAL_GPIO_Init(tm1637->dio_port, &GPIO_InitStruct);
 }
 
 // ===================================================================================
@@ -87,14 +79,14 @@ static void DIO_AsOutput() {
  * @brief Generates the TM1637 START condition.
  * CLK HIGH, DIO HIGH -> DIO LOW, then CLK LOW.
  */
-static void TM1637_Start(void) {
-	DIO_AsOutput();
-	CLK_HIGH();
-	DIO_HIGH();
+static void TM1637_Start(TM1637_t* tm1637) {
+	DIO_AsOutput(tm1637);
+	CLK_HIGH(tm1637);
+	DIO_HIGH(tm1637);
 	TM1637_Delay();
-	DIO_LOW();
+	DIO_LOW(tm1637);
 	TM1637_Delay();
-	CLK_LOW();
+	CLK_LOW(tm1637);
 	TM1637_Delay();
 }
 
@@ -102,14 +94,14 @@ static void TM1637_Start(void) {
  * @brief Generates the TM1637 STOP condition.
  * CLK LOW, DIO LOW -> CLK HIGH, DIO HIGH.
  */
-static void TM1637_Stop(void) {
-	DIO_AsOutput();
-	CLK_LOW();
-	DIO_LOW();
+static void TM1637_Stop(TM1637_t* tm1637) {
+	DIO_AsOutput(tm1637);
+	CLK_LOW(tm1637);
+	DIO_LOW(tm1637);
 	TM1637_Delay();
-	CLK_HIGH();
+	CLK_HIGH(tm1637);
 	TM1637_Delay();
-	DIO_HIGH();
+	DIO_HIGH(tm1637);
 	TM1637_Delay();
 }
 
@@ -118,47 +110,47 @@ static void TM1637_Stop(void) {
  * @param data The byte to transmit.
  * @return 1 if ACK received, 0 otherwise.
  */
-static uint8_t TM1637_SendByte(uint8_t data) {
+static uint8_t TM1637_SendByte(TM1637_t* tm1637, uint8_t data) {
 	uint8_t i;
 	uint8_t ack_status;
 
-	// 1. Send 8 bits (LSB first)
+	// Send 8 bits (LSB first)
 	for (i = 0; i < 8; i++) {
-		CLK_LOW();
+		CLK_LOW(tm1637);
 		TM1637_Delay();
 
 		// Output the bit (LSB is bit 0)
 		if (data & 0x01) {
-			DIO_HIGH();
+			DIO_HIGH(tm1637);
 		} else {
-			DIO_LOW();
+			DIO_LOW(tm1637);
 		}
 		TM1637_Delay();
 
-		CLK_HIGH();
+		CLK_HIGH(tm1637);
 		TM1637_Delay();
 		data >>= 1; // Shift right for LSB first
 	}
 
-	// 2. Read ACK from TM1637 (9th clock cycle)
-	CLK_LOW();
+	// Read ACK from TM1637 (9th clock cycle)
+	CLK_LOW(tm1637);
 	TM1637_Delay();
 
 	// Switch DIO to Input mode to read the ACK
-	DIO_AsInput();
+	DIO_AsInput(tm1637);
 	TM1637_Delay();
 
-	CLK_HIGH(); // Pulse clock to read ACK
+	CLK_HIGH(tm1637); // Pulse clock to read ACK
 	TM1637_Delay();
 
 	// Check if the TM1637 pulled the line LOW (ACK = GPIO_PIN_RESET)
-	ack_status = (DIO_READ() == GPIO_PIN_RESET);
+	ack_status = (DIO_READ(tm1637) == GPIO_PIN_RESET);
 
-	CLK_LOW();
+	CLK_LOW(tm1637);
 	TM1637_Delay();
 
 	// Switch DIO back to Output mode for next transmission
-	DIO_AsOutput();
+	DIO_AsOutput(tm1637);
 
 	return ack_status;
 }
@@ -168,37 +160,42 @@ static uint8_t TM1637_SendByte(uint8_t data) {
  * @param seg_data Pointer to an array of 4 segment bytes (D3, D2, D1, D0).
  * @param start_addr The starting address offset (usually 0).
  */
-static void TM1637_WriteDisplayData(uint8_t seg_data[4], uint8_t start_addr) {
-	// 1. Send Data Command (Auto Address Increment 0x40)
-	TM1637_Start();
+static void TM1637_WriteDisplayData(TM1637_t* tm1637, uint8_t seg_data[4], uint8_t start_addr) {
+	// Send Data Command (Auto Address Increment 0x40)
+	TM1637_Start(tm1637);
 	TM1637_SendByte(ADDR_AUTO);
-	TM1637_Stop();
+	TM1637_Stop(tm1637);
 
-	// 2. Send Address Command (Start at 0xC0) and 4 data bytes
-	TM1637_Start();
-	TM1637_SendByte(START_CMD | (start_addr & 0x03)); // Start address C0H, C1H, etc.
+	// Send Address Command (Start at 0xC0) and 4 data bytes
+	TM1637_Start(tm1637);
+	TM1637_SendByte(tm1637, START_CMD | (start_addr & 0x03)); // Start address C0H, C1H, etc.
 
 	for (int i = 0; i < 4; i++) {
-		TM1637_SendByte(seg_data[i]);
+		TM1637_SendByte(tm1637, seg_data[i]);
 	}
-	TM1637_Stop();
+	TM1637_Stop(tm1637);
 }
 
 // ===================================================================================
 // PUBLIC API IMPLEMENTATION
 // ===================================================================================
 
-void TM1637_Init(void) {
-	// Clear the display buffer
+void TM1637_Init(TM1637_t* tm1637, GPIO_TypeDef* clk_port,
+		uint16_t clk_pin, GPIO_TypeDef* dio_port, uint16_t dio_pin) {
+
+	// Init the tm1637 struct
+	tm1637->clk_port = clk_port;
+	tm1637->clk_pin = clk_pin;
+	tm1637->dio_port = dio_port;
+	tm1637->dio_pin = dio_pin;
+
 	uint8_t blank_data[4] = { segment_codes[10], segment_codes[10],
 			segment_codes[10], segment_codes[10] };
-	TM1637_WriteDisplayData(blank_data, 0);
-
-	// Turn on display and set default brightness
-	TM1637_SetBrightness(BRIGHTNESS_MAX);
+	TM1637_WriteDisplayData(tm1637, blank_data, 0);
+	TM1637_SetBrightness(tm1637, BRIGHTNESS_MAX);
 }
 
-void TM1637_SetBrightness(uint8_t brightness) {
+void TM1637_SetBrightness(TM1637_t* tm1637, uint8_t brightness) {
 	// Brightness level 0-7 is safe
 	if (brightness > 7)
 		brightness = 7;
@@ -206,12 +203,12 @@ void TM1637_SetBrightness(uint8_t brightness) {
 	// Display Control Command is 0x88 | (brightness | display_on_flag)
 	uint8_t ctrl_byte = 0x88 | brightness;
 
-	TM1637_Start();
-	TM1637_SendByte(ctrl_byte);
-	TM1637_Stop();
+	TM1637_Start(tm1637);
+	TM1637_SendByte(tm1637, ctrl_byte);
+	TM1637_Stop(tm1637);
 }
 
-void TM1637_DisplayDec(uint16_t val, bool useDot) {
+void TM1637_DisplayDec(TM1637_t* tm1637, uint16_t val, bool useDot) {
 	uint8_t digits[4];
 	uint8_t segments_to_display[4];
 
@@ -243,5 +240,5 @@ void TM1637_DisplayDec(uint16_t val, bool useDot) {
 	}
 
 	// Send the array to the display
-	TM1637_WriteDisplayData(segments_to_display, 0);
+	TM1637_WriteDisplayData(tm1637, segments_to_display, 0);
 }

@@ -20,12 +20,21 @@
 #define BRIGHTNESS_MAX	0x8F
 #define BRIGHTNESS_MIN	0x88
 #define DISPLAY_OFF		0x80
-
+// --- Type Definitions ---
+typedef struct {
+	// GPIO port and pin for CLK
+	GPIO_TypeDef* clk_port;
+	uint16_t clk_pin;
+	// GPIO port and pin for DIO
+	GPIO_TypeDef* dio_port;
+	uint16_t dio_pin;
+} TM1637_t;
 // --- Public Function Prototypes ---
 /**
  * @brief Initializes the TM1637 module, clears the display, and sets the max brightness
  */
-void TM1637_Init(void);
+void TM1637_Init(TM1637_t* tm1637, GPIO_TypeDef* clk_port, uint16_t clk_pin,
+				 GPIO_TypeDef* dio_port, uint16_t dio_pin);
 
 /**
  * @brief Displays a 4-digit decimal number on the segment display.
